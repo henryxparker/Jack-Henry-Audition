@@ -1,7 +1,6 @@
 package com.example.jackhenryaudition
 
 import cats.effect.Async
-//import cats.syntax.all._
 import com.comcast.ip4s._
 import fs2.io.net.Network
 import org.http4s.ember.client.EmberClientBuilder
@@ -16,15 +15,8 @@ object JackhenryauditionServer {
       client <- EmberClientBuilder.default[F].build
       weatherServiceAlg = WeatherService.impl[F](client)
 
-      // Combine Service Routes into an HttpApp.
-      // Can also be done via a Router if you
-      // want to extract segments not checked
-      // in the underlying routes.
-      httpApp = (
-        JackhenryauditionRoutes.weatherRoutes[F](weatherServiceAlg)
-      ).orNotFound
+      httpApp = JackhenryauditionRoutes.weatherRoutes[F](weatherServiceAlg).orNotFound
 
-      // With Middlewares in place
       finalHttpApp = Logger.httpApp(true, true)(httpApp)
 
       _ <- 
