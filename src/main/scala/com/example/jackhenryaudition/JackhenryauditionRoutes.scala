@@ -22,8 +22,7 @@ object JackhenryauditionRoutes {
     HttpRoutes.of[F] {
       case GET -> Root / DoubleVar(lattitude) / DoubleVar(longitude) =>
         for {
-          temp <- W.getTemp(WeatherService.Location(lattitude, longitude))
-          resp <- Ok(temp)
+          resp <- W.getTemp(WeatherService.Location(lattitude, longitude))
         } yield resp
     }
   }

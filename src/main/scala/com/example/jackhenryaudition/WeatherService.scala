@@ -1,31 +1,39 @@
 package com.example.jackhenryaudition
 
-import cats.Applicative
-import cats.implicits._
-import io.circe.{Encoder, Json}
-import org.http4s.EntityEncoder
-import org.http4s.circe._
+import cats.effect.{Async, MonadCancelThrow}
+import cats.syntax.all._
+import io.circe.Json
+import org.http4s.circe.{jsonDecoder, jsonEncoder}
+import org.http4s.client.Client
+import org.http4s.dsl.Http4sDsl
+import org.http4s.{ProductId, Request, Response, Uri}
+import org.http4s.headers.`User-Agent`
+
 
 trait WeatherService[F[_]]{
-  def getTemp(n: WeatherService.Location): F[WeatherService.Temperature]
+  def getTemp(n: WeatherService.Location): F[Response[F]]
 }
 
 object WeatherService {
   case class Location(lattitude: Double, longitude: Double)
+  case class Temperature(Temperature: String)
 
-  final case class Temperature(Temperature: String) extends AnyVal
-  object Temperature {
-    implicit val TemperatureEncoder: Encoder[Temperature] = new Encoder[Temperature] {
-      final def apply(a: Temperature): Json = Json.obj(
-        ("message", Json.fromString(a.Temperature)),
+  def addUserAgentHeader[F[_]: MonadCancelThrow](client: Client[F]): Client[F] = Client[F] {
+    (req: Request[F]) =>
+      client.run(
+        req.withHeaders(`User-Agent`(ProductId("henrysjackhenryaudition")))
       )
-    }
-    implicit def TemperatureEntityEncoder[F[_]]: EntityEncoder[F, Temperature] =
-      jsonEncoderOf[F, Temperature]
   }
 
-  def impl[F[_]: Applicative]: WeatherService[F] = new WeatherService[F]{
-    def getTemp(l: WeatherService.Location): F[WeatherService.Temperature] =
-        Temperature(s"${l.lattitude}, ${l.longitude}").pure[F]
+
+  def impl[F[_]: Async](client: Client[F]): WeatherService[F] = new WeatherService[F]{
+    val dsl = new Http4sDsl[F] {}
+    import dsl._
+    def getTemp(l: WeatherService.Location): F[Response[F]] =
+      Uri.fromString(s"https://api.weather.gov/points/${l.lattitude},${l.longitude}")
+        .toOption.toRight(BadRequest("unexpected input"))
+        .map(uri => addUserAgentHeader(client).expect[Json](uri))
+        .fold(r => r, r => r.flatMap(json => Ok(json)))
+        
   }
 }

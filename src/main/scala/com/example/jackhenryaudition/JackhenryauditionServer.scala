@@ -13,8 +13,8 @@ object JackhenryauditionServer {
 
   def run[F[_]: Async: Network]: F[Nothing] = {
     for {
-      _ <- EmberClientBuilder.default[F].build
-      weatherServiceAlg = WeatherService.impl[F]
+      client <- EmberClientBuilder.default[F].build
+      weatherServiceAlg = WeatherService.impl[F](client)
 
       // Combine Service Routes into an HttpApp.
       // Can also be done via a Router if you
