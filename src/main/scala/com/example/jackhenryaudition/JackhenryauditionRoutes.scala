@@ -1,9 +1,10 @@
 package com.example.jackhenryaudition
 
-import cats.effect.Sync
+import cats.effect.kernel.Concurrent
 import cats.implicits._
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
+
 import scala.util.Try
 
 object JackhenryauditionRoutes {
@@ -16,13 +17,14 @@ object JackhenryauditionRoutes {
         None
   }
 
-  def weatherRoutes[F[_]: Sync](W: WeatherService[F]): HttpRoutes[F] = {
+  def weatherRoutes[F[_]: Concurrent](W: WeatherService[F]): HttpRoutes[F] = {
     val dsl = new Http4sDsl[F]{}
     import dsl._
     HttpRoutes.of[F] {
       case GET -> Root / DoubleVar(lattitude) / DoubleVar(longitude) =>
         for {
-          resp <- W.getTemp(WeatherService.Location(lattitude, longitude))
+          forecast <- W.getTemp(WeatherService.Location(lattitude, longitude))
+          resp <- Ok(forecast)
         } yield resp
     }
   }

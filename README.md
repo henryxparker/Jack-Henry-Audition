@@ -1,0 +1,1 @@
+Generated base project from gitter template https://github.com/http4s/http4s.g8
