@@ -1,7 +1,7 @@
 package com.example.jackhenryaudition
 
 import cats.effect.Async
-import cats.syntax.all._
+//import cats.syntax.all._
 import com.comcast.ip4s._
 import fs2.io.net.Network
 import org.http4s.ember.client.EmberClientBuilder
@@ -13,17 +13,15 @@ object JackhenryauditionServer {
 
   def run[F[_]: Async: Network]: F[Nothing] = {
     for {
-      client <- EmberClientBuilder.default[F].build
-      helloWorldAlg = HelloWorld.impl[F]
-      jokeAlg = Jokes.impl[F](client)
+      _ <- EmberClientBuilder.default[F].build
+      weatherServiceAlg = WeatherService.impl[F]
 
       // Combine Service Routes into an HttpApp.
       // Can also be done via a Router if you
       // want to extract segments not checked
       // in the underlying routes.
       httpApp = (
-        JackhenryauditionRoutes.helloWorldRoutes[F](helloWorldAlg) <+>
-        JackhenryauditionRoutes.jokeRoutes[F](jokeAlg)
+        JackhenryauditionRoutes.weatherRoutes[F](weatherServiceAlg)
       ).orNotFound
 
       // With Middlewares in place
