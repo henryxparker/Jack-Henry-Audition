@@ -1,63 +1,68 @@
 package com.example.jackhenryaudition
 
-import cats.effect.{Async, MonadCancelThrow}
-import cats.syntax.all._
-import io.circe.generic.semiauto._
-import io.circe.{Encoder, Json}
-import org.http4s.circe.{jsonDecoder, jsonEncoderOf}
+import cats.Applicative
+import cats.data.EitherT
+import cats.effect.Async
+import com.example.jackhenryaudition.model.Weather._
+import com.example.jackhenryaudition.model.{FailedToParseJson, ForecastError, InvalidUri}
+import io.circe.Json
+import org.http4s.Uri
+import org.http4s.circe.jsonDecoder
 import org.http4s.client.Client
-import org.http4s.headers.`User-Agent`
-import org.http4s.{EntityEncoder, ProductId, Request, Uri}
 
 
 trait WeatherService[F[_]]{
-  def getTemp(n: WeatherService.Location): F[WeatherService.Forecast]
+  def getTemp(n: Location): EitherT[F, ForecastError, Forecast]
 }
 
 object WeatherService {
-  case class Location(lattitude: Double, longitude: Double)
-  case class RawForecast(temperature: Int, description: String)
-  case class Forecast(forecast: String, temperature: String)
-  object Forecast {
-    implicit val forecastEncoder: Encoder[Forecast] = deriveEncoder
-    implicit def forecastEntityEncoder[F[_]]: EntityEncoder[F, Forecast] = jsonEncoderOf
-  }
-
-  def addUserAgentHeader[F[_]: MonadCancelThrow](client: Client[F]): Client[F] = Client[F] {
-    (req: Request[F]) =>
-      client.run(
-        req.withHeaders(`User-Agent`(ProductId("henrysjackhenryaudition")))
-      )
-  }
 
   def impl[F[_]: Async](client: Client[F]): WeatherService[F] = new WeatherService[F]{
-    val fullclient = addUserAgentHeader(client)
-    def getTemp(l: WeatherService.Location): F[Forecast] =
+    def getTemp(location: Location): EitherT[F, ForecastError, Forecast] =
       for{
-        pointsResponse <- fullclient.expect[Json](Uri.fromString(s"https://api.weather.gov/points/${l.lattitude},${l.longitude}").toOption.get)
-        forecastResponse <- fullclient.expect[Json](getForecastUrl(pointsResponse))
-      } yield toForecast(getRawForecast(forecastResponse))
+        gridPointsUri <- makeGridPointUri(location)
+        pointsResponse <-EitherT.liftF(client.expect[Json](gridPointsUri))
+        forecastUri <- getForecastUri(pointsResponse)
+        forecastResponse <- EitherT.liftF(client.expect[Json](forecastUri))
+        rawForecast <- getRawForecast(forecastResponse)
+      } yield toForecast(rawForecast)
   }
 
-  def getForecastUrl(j: Json): Uri =
-    j.hcursor
-      .downField("properties")
-      .downField("forecast")
-      .as[String]
-      .toOption
-      .flatMap(s => Uri.fromString(s).toOption)
-      .get
+  def makeGridPointUri[F[_]: Applicative](location: Location): EitherT[F, ForecastError, Uri] =
+    EitherT.fromEither(
+      Uri.fromString(s"https://api.weather.gov/points/${location.lattitude},${location.longitude}").toOption.toRight[ForecastError](InvalidUri)
+    )
 
-  def getRawForecast(json: Json): RawForecast = {
+  def getForecastUri[F[_]: Applicative](j: Json): EitherT[F, ForecastError, Uri] = {
+    EitherT.fromEither(
+      j.hcursor
+        .downField("properties")
+        .downField("forecast")
+        .as[String]
+        .toOption.toRight[ForecastError](FailedToParseJson)
+        .flatMap(s => Uri.fromString(s).toOption.toRight[ForecastError](InvalidUri))
+    )
+  }
+
+  def getRawForecast[F[_]: Applicative](json: Json): EitherT[F, ForecastError, RawForecast] = {
     val period = json.hcursor
       .downField("properties")
       .downField("periods")
-      .downArray
+      .as[List[Json]]
+      .toOption
+      .getOrElse(Nil)
+      .find(j =>
+        j.hcursor
+          .downField("number")
+          .as[Int]
+          .exists(_ == 1)
+      )
 
-    RawForecast(
-      period.downField("temperature").as[Int].toOption.get,
-      period.downField("shortForecast").as[String].toOption.get
-    )
+    EitherT.fromEither((for {
+      temp <- period.flatMap(p => p.hcursor.downField("temperature").as[Int].toOption)
+      forecast <- period.flatMap(p => p.hcursor.downField("shortForecast").as[String].toOption)
+    } yield RawForecast(temp, forecast))
+      .toRight[ForecastError](FailedToParseJson))
   }
 
   def toForecast(raw: RawForecast): Forecast =
